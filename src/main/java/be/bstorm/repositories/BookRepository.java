@@ -71,6 +71,31 @@ public class BookRepository {
         );
     }
 
+    public void saveAll(List<Book> books) {
+        if (books == null || books.isEmpty()) {
+            return;
+        }
+
+        String query = "INSERT INTO Book (isbn, title, description, author_id) VALUES (?, ?, ?, ?)";
+
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            for (Book book : books) {
+                stmt.setString(1, book.getIsbn());
+                stmt.setString(2, book.getTitle());
+                stmt.setString(3, book.getDescription());
+                stmt.setObject(4, book.getAuthorId());
+                stmt.addBatch();
+            }
+
+            stmt.executeBatch();
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to save all books", e);
+        }
+    }
+
+
+
     public void update(String isbn, Book book) {
         executeUpdate(
             "UPDATE Book SET title = ?, description = ?, author_id = ? WHERE isbn = ?",
