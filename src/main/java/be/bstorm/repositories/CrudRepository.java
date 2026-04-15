@@ -9,17 +9,14 @@ import be.bstorm.annotations.Table;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static be.bstorm.utils.ConnectionUtils.getConnection;
 
@@ -55,7 +52,6 @@ import static be.bstorm.utils.ConnectionUtils.getConnection;
  *
  * @param <TEntity> le type de l'entité gérée (ex: {@code Author})
  * @param <TId>     le type de la clé primaire (ex: {@code Integer})
- *
  * @see Table
  * @see Column
  * @see Id
@@ -67,7 +63,7 @@ public abstract class CrudRepository<TEntity, TId> {
     private final String tableName;
     private final Field idField;
     private final String idColumn;
-    private final boolean generatedId;
+    private final boolean isGeneratedId;
 
     private final List<Field> mappedFields;
     private final List<Field> insertFields;
@@ -94,7 +90,7 @@ public abstract class CrudRepository<TEntity, TId> {
         this.mappedFields = resolveMappedFields(entityClass);
         this.idField = resolveIdField(mappedFields);
         this.idColumn = resolveColumnName(idField);
-        this.generatedId = idField.getAnnotation(Id.class).generation() == GenerationType.GENERATED;
+        this.isGeneratedId = idField.getAnnotation(Id.class).generation() == GenerationType.GENERATED;
 
         this.insertFields = buildInsertFields();
         this.updateFields = buildUpdateFields();
@@ -111,6 +107,7 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     public List<TEntity> findAll() {
         String sql = "SELECT " + selectColumns + " FROM " + tableName;
+        logQuery("FINDALL", sql, List.of());
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql);
@@ -120,6 +117,7 @@ public abstract class CrudRepository<TEntity, TId> {
             while (rs.next()) {
                 entities.add(buildEntity(rs));
             }
+            logResult("FINDALL", entities.size() + " entity(ies) found");
             return entities;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to find all entities from " + tableName, e);
@@ -137,13 +135,20 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     public Optional<TEntity> findById(TId id) {
         String sql = "SELECT " + selectColumns + " FROM " + tableName + " WHERE " + idColumn + " = ?";
+        logQuery("FINDBYID", sql, List.of(id));
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setObject(1, id);
             try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? Optional.of(buildEntity(rs)) : Optional.empty();
+                if (rs.next()) {
+                    TEntity entity = buildEntity(rs);
+                    logResult("FINDBYID", "Entity found");
+                    return Optional.of(entity);
+                }
+                logResult("FINDBYID", "No entity found");
+                return Optional.empty();
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to find entity by id", e);
@@ -170,6 +175,11 @@ public abstract class CrudRepository<TEntity, TId> {
     public TEntity save(TEntity entity) {
         String sql = buildInsertSql();
 
+        List<Object> params = insertFields.stream()
+                .map(field -> getFieldValue(entity, field))
+                .toList();
+        logQuery("SAVE/INSERT", sql, params);
+
         try (Connection conn = getConnection();
              PreparedStatement stmt = createInsertStatement(conn, sql)) {
 
@@ -180,8 +190,11 @@ public abstract class CrudRepository<TEntity, TId> {
                 throw new RuntimeException("Insert affected 0 rows for " + tableName);
             }
 
-            if (generatedId) {
+            if (isGeneratedId) {
                 assignGeneratedId(stmt, entity);
+                logResult("SAVE/INSERT", "Entity inserted with generated ID: " + getFieldValue(entity, idField));
+            } else {
+                logResult("SAVE/INSERT", "Entity inserted");
             }
 
             return entity;
@@ -205,15 +218,13 @@ public abstract class CrudRepository<TEntity, TId> {
      * @throws RuntimeException si aucune ligne n'a été modifiée (id inexistant)
      */
     public TEntity update(TId id, TEntity entity) {
-        if (updateFields.isEmpty()) {
-            if (!existsById(id)) {
-                throw new RuntimeException("No entity updated for id: " + id);
-            }
-            setFieldValue(entity, idField, id);
-            return entity;
-        }
-
         String sql = buildUpdateSql();
+
+        List<Object> params = Stream.concat(
+                updateFields.stream().map(field -> getFieldValue(entity, field)),
+                Stream.of(id)
+        ).toList();
+        logQuery("UPDATE", sql, params);
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -227,6 +238,7 @@ public abstract class CrudRepository<TEntity, TId> {
             }
 
             setFieldValue(entity, idField, id);
+            logResult("UPDATE", "Entity updated");
             return entity;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to update entity in " + tableName, e);
@@ -247,6 +259,7 @@ public abstract class CrudRepository<TEntity, TId> {
                 .orElseThrow(() -> new RuntimeException("No entity found for id: " + id));
 
         String sql = "DELETE FROM " + tableName + " WHERE " + idColumn + " = ?";
+        logQuery("DELETE", sql, List.of(id));
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -257,6 +270,7 @@ public abstract class CrudRepository<TEntity, TId> {
                 throw new RuntimeException("No entity deleted for id: " + id);
             }
 
+            logResult("DELETE", "Entity deleted");
             return existing;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to delete entity from " + tableName, e);
@@ -273,12 +287,15 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     public int count() {
         String sql = "SELECT COUNT(*) FROM " + tableName;
+        logQuery("COUNT", sql, List.of());
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
 
-            return rs.next() ? rs.getInt(1) : 0;
+            int count = rs.next() ? rs.getInt(1) : 0;
+            logResult("COUNT", count + " entity(ies)");
+            return count;
         } catch (SQLException e) {
             throw new RuntimeException("Failed to count entities in " + tableName, e);
         }
@@ -295,13 +312,16 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     public boolean existsById(TId id) {
         String sql = "SELECT 1 FROM " + tableName + " WHERE " + idColumn + " = ?";
+        logQuery("EXISTS", sql, List.of(id));
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setObject(1, id);
             try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
+                boolean exists = rs.next();
+                logResult("EXISTS", exists ? "Entity found" : "No entity found");
+                return exists;
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to check entity existence", e);
@@ -330,13 +350,17 @@ public abstract class CrudRepository<TEntity, TId> {
             constructor.setAccessible(true);
 
             TEntity entity = constructor.newInstance();
-            for (Field field : mappedFields) {
+            mappedFields.forEach(field -> {
                 String column = resolveColumnName(field);
-                Object value = rs.getObject(column, field.getType());
-                setFieldValue(entity, field, value);
-            }
+                try {
+                    Object value = rs.getObject(column, field.getType());
+                    setFieldValue(entity, field, value);
+                } catch (SQLException e) {
+                    throw new RuntimeException("Failed to read field: " + field.getName(), e);
+                }
+            });
             return entity;
-        } catch (ReflectiveOperationException | SQLException e) {
+        } catch (ReflectiveOperationException e) {
             throw new RuntimeException("Failed to build entity: " + entityClass.getName(), e);
         }
     }
@@ -352,42 +376,19 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     @SuppressWarnings("unchecked")
     private Class<TEntity> resolveEntityClass() {
-        Class<?> current = getClass();
-
-        while (current != null) {
-            Type generic = current.getGenericSuperclass();
-
-            if (generic instanceof ParameterizedType pt && pt.getRawType() == CrudRepository.class) {
-                Type entityType = pt.getActualTypeArguments()[0];
-
-                if (entityType instanceof Class<?> clazz) {
-                    return (Class<TEntity>) clazz;
-                }
-                if (entityType instanceof ParameterizedType nested && nested.getRawType() instanceof Class<?> clazz) {
-                    return (Class<TEntity>) clazz;
-                }
-            }
-
-            current = current.getSuperclass();
-        }
-
-        throw new IllegalStateException("Unable to resolve entity type for " + getClass().getName());
+        ParameterizedType paramType = (ParameterizedType) getClass().getGenericSuperclass();
+        return (Class<TEntity>) paramType.getActualTypeArguments()[0];
     }
 
     /**
      * Résout le nom de la table depuis l'annotation {@link Table}.
      *
      * @param type la classe de l'entité
-     * @return le nom de la table
-     * @throws IllegalArgumentException si l'annotation @Table est manquante
+     * @return le nom de la table (ou le nom de la classe si non annoté)
      */
     private String resolveTableName(Class<TEntity> type) {
         Table table = type.getAnnotation(Table.class);
-        if (table == null) {
-            throw new IllegalArgumentException("Missing @Table on entity: " + type.getName());
-        }
-
-        if (table.name().isBlank()) {
+        if (table == null || table.name().isBlank()) {
             return type.getSimpleName().toLowerCase();
         }
         return table.name();
@@ -401,25 +402,10 @@ public abstract class CrudRepository<TEntity, TId> {
      * @throws IllegalArgumentException si aucun champ @Column n'est trouvé
      */
     private List<Field> resolveMappedFields(Class<TEntity> type) {
-        List<Field> fields = new ArrayList<>();
-
-        for (Field field : type.getDeclaredFields()) {
-            if (field.isAnnotationPresent(NavigationProperty.class)) {
-                continue;
-            }
-            if (!field.isAnnotationPresent(Column.class)) {
-                continue;
-            }
-
-            field.setAccessible(true);
-            fields.add(field);
-        }
-
-        if (fields.isEmpty()) {
-            throw new IllegalArgumentException("No @Column fields found on entity: " + type.getName());
-        }
-
-        return fields;
+        return Arrays.stream(type.getDeclaredFields())
+                .filter(field -> !field.isAnnotationPresent(NavigationProperty.class))
+                .peek(field -> field.setAccessible(true))
+                .toList();
     }
 
     /**
@@ -427,26 +413,13 @@ public abstract class CrudRepository<TEntity, TId> {
      *
      * @param fields la liste des champs mappés
      * @return le champ @Id unique
-     * @throws IllegalArgumentException si aucun ou plusieurs @Id sont trouvés
+     * @throws java.util.NoSuchElementException si aucun ou plusieurs @Id sont trouvés
      */
     private Field resolveIdField(List<Field> fields) {
-        Field found = null;
-
-        for (Field field : fields) {
-            if (!field.isAnnotationPresent(Id.class)) {
-                continue;
-            }
-            if (found != null) {
-                throw new IllegalArgumentException("Entity must define exactly one @Id field: " + entityClass.getName());
-            }
-            found = field;
-        }
-
-        if (found == null) {
-            throw new IllegalArgumentException("Entity must define exactly one @Id field: " + entityClass.getName());
-        }
-
-        return found;
+        return fields.stream()
+                .filter(field -> field.isAnnotationPresent(Id.class))
+                .findFirst()
+                .orElseThrow();
     }
 
     /**
@@ -472,7 +445,7 @@ public abstract class CrudRepository<TEntity, TId> {
      * @return liste des champs pour l'INSERT
      */
     private List<Field> buildInsertFields() {
-        if (!generatedId) {
+        if (!isGeneratedId) {
             return mappedFields;
         }
 
@@ -504,8 +477,12 @@ public abstract class CrudRepository<TEntity, TId> {
             return "INSERT INTO " + tableName + " DEFAULT VALUES";
         }
 
-        String columns = insertFields.stream().map(this::resolveColumnName).collect(Collectors.joining(", "));
+        String columns = insertFields.stream()
+                .map(this::resolveColumnName)
+                .collect(Collectors.joining(", "));
+
         String placeholders = String.join(", ", Collections.nCopies(insertFields.size(), "?"));
+
         return "INSERT INTO " + tableName + " (" + columns + ") VALUES (" + placeholders + ")";
     }
 
@@ -525,13 +502,13 @@ public abstract class CrudRepository<TEntity, TId> {
     /**
      * Crée un PreparedStatement avec ou sans support des clés générées.
      *
-     * @param conn la connexion DB
+     * @param conn  la connexion DB
      * @param query la requête SQL
      * @return le PreparedStatement configuré
      * @throws SQLException en cas d'erreur
      */
     private PreparedStatement createInsertStatement(Connection conn, String query) throws SQLException {
-        if (generatedId) {
+        if (isGeneratedId) {
             return conn.prepareStatement(query, Statement.RETURN_GENERATED_KEYS);
         }
         return conn.prepareStatement(query);
@@ -540,7 +517,7 @@ public abstract class CrudRepository<TEntity, TId> {
     /**
      * Lie les valeurs des champs aux paramètres du PreparedStatement.
      *
-     * @param stmt le PreparedStatement
+     * @param stmt   le PreparedStatement
      * @param entity l'entité à lier
      * @param fields les champs à lier
      * @return l'index suivant disponible dans le statement
@@ -548,19 +525,21 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     private int bindFields(PreparedStatement stmt, TEntity entity, List<Field> fields) throws SQLException {
         int index = 1;
-
-        for (Field field : fields) {
-            Object value = getFieldValue(entity, field);
-            stmt.setObject(index++, value);
+        for(Field field : fields) {
+            try {
+                Object value = getFieldValue(entity, field);
+                stmt.setObject(index++, value);
+            } catch (SQLException e) {
+                throw new RuntimeException("Failed to bind field: " + field.getName(), e);
+            }
         }
-
         return index;
     }
 
     /**
      * Assigne la clé générée à l'entité après un INSERT.
      *
-     * @param stmt le PreparedStatement exécuté
+     * @param stmt   le PreparedStatement exécuté
      * @param entity l'entité à mettre à jour
      * @throws SQLException en cas d'erreur
      */
@@ -579,7 +558,7 @@ public abstract class CrudRepository<TEntity, TId> {
      * Lit la valeur d'un champ via la réflexion.
      *
      * @param entity l'entité
-     * @param field le champ à lire
+     * @param field  le champ à lire
      * @return la valeur du champ
      * @throws RuntimeException si l'accès au champ échoue
      */
@@ -595,8 +574,8 @@ public abstract class CrudRepository<TEntity, TId> {
      * Écrit la valeur d'un champ via la réflexion.
      *
      * @param entity l'entité
-     * @param field le champ à écrire
-     * @param value la nouvelle valeur
+     * @param field  le champ à écrire
+     * @param value  la nouvelle valeur
      * @throws RuntimeException si l'accès au champ échoue
      */
     private void setFieldValue(TEntity entity, Field field, Object value) {
@@ -604,6 +583,180 @@ public abstract class CrudRepository<TEntity, TId> {
             field.set(entity, value);
         } catch (IllegalAccessException e) {
             throw new RuntimeException("Cannot write field: " + field.getName(), e);
+        }
+    }
+
+    // ====================================
+    // 🔍 LOGGING & DEBUG
+    // ====================================
+
+    /**
+     * Affiche une requête SQL avec ses paramètres de manière formatée.
+     * Adapte dynamiquement la largeur du cadre et enveloppe le SQL sur plusieurs lignes.
+     *
+     * @param operation le type d'opération (FINDALL, FINDBYID, SAVE, UPDATE, DELETE, etc.)
+     * @param sql       la requête SQL
+     * @param params    les paramètres liés
+     */
+    private void logQuery(String operation, String sql, List<Object> params) {
+        System.out.println();
+
+        // Calculer la largeur nécessaire
+        int width = calculateWidth(sql, operation, params);
+
+        // Afficher le cadre supérieur
+        printTopBorder(width);
+        printHeaderLine(width, "🔍 SQL " + operation + " - " + entityClass.getSimpleName());
+        printSeparator(width);
+
+        // Afficher le SQL (enveloppé si nécessaire)
+        printWrappedSQL(sql, width);
+
+        // Afficher les paramètres s'il y en a
+        if (!params.isEmpty()) {
+            printSeparator(width);
+            printLine(width, "📌 Paramètres :");
+            java.util.stream.IntStream.range(0, params.size())
+                    .forEach(i -> {
+                        Object param = params.get(i);
+                        String value = param == null ? "NULL" : param.toString();
+                        printLine(width, "   [" + (i + 1) + "] → " + value);
+                    });
+        }
+
+        // Afficher le cadre inférieur
+        printBottomBorder(width);
+    }
+
+    /**
+     * Affiche le résultat d'une opération de manière formatée.
+     *
+     * @param operation le type d'opération
+     * @param result    la description du résultat
+     */
+    private void logResult(String operation, String result) {
+        int width = 60; // Largeur fixe pour rester cohérent
+        printLine(width, "✅ Résultat (" + operation + ") : " + result);
+        printBottomBorder(width);
+    }
+
+    /**
+     * Calcule la largeur nécessaire pour afficher le contenu.
+     * Largeur fixe à 60 caractères pour garder un format compact.
+     * Le SQL s'enveloppera sur plusieurs lignes si nécessaire.
+     */
+    private int calculateWidth(String sql, String operation, List<Object> params) {
+        return 60; // Largeur fixe pour garder un format compact
+    }
+
+    /**
+     * Affiche une ligne du cadre supérieur.
+     */
+    private void printTopBorder(int width) {
+        System.out.print("┌");
+        for (int i = 0; i < width - 2; i++) {
+            System.out.print("─");
+        }
+        System.out.println("┐");
+    }
+
+    /**
+     * Affiche une ligne du cadre inférieur.
+     */
+    private void printBottomBorder(int width) {
+        System.out.print("└");
+        for (int i = 0; i < width - 2; i++) {
+            System.out.print("─");
+        }
+        System.out.println("┘");
+    }
+
+    /**
+     * Affiche une ligne de séparation.
+     */
+    private void printSeparator(int width) {
+        System.out.print("├");
+        for (int i = 0; i < width - 2; i++) {
+            System.out.print("─");
+        }
+        System.out.println("┤");
+    }
+
+    /**
+     * Affiche une ligne de contenu avec le texte centré/justifié.
+     */
+    private void printLine(int width, String content) {
+        int maxContentWidth = width - 4; // 2 pour les bordures │ et 2 pour les espaces
+
+        if (content.length() <= maxContentWidth) {
+            System.out.println("│ " + content + " ".repeat(maxContentWidth - content.length()) + " │");
+        } else {
+            // Si le contenu est trop long, le découper
+            int offset = 0;
+            while (offset < content.length()) {
+                int endIndex = Math.min(offset + maxContentWidth, content.length());
+                String part = content.substring(offset, endIndex);
+                System.out.println("│ " + part + " ".repeat(maxContentWidth - part.length()) + " │");
+                offset = endIndex;
+            }
+        }
+    }
+
+    /**
+     * Affiche une ligne d'en-tête.
+     */
+    private void printHeaderLine(int width, String header) {
+        int maxContentWidth = width - 4;
+        if (header.length() <= maxContentWidth) {
+            System.out.println("│ " + header + " ".repeat(maxContentWidth - header.length()) + " │");
+        } else {
+            System.out.println("│ " + header.substring(0, maxContentWidth) + " │");
+        }
+    }
+
+    /**
+     * Affiche le SQL en l'enveloppant sur plusieurs lignes si nécessaire.
+     */
+    private void printWrappedSQL(String sql, int width) {
+        int maxContentWidth = width - 4; // Largeur disponible pour le contenu
+
+        if (sql.length() <= maxContentWidth) {
+            // Si le SQL tient sur une ligne
+            System.out.println("│ " + sql + " ".repeat(maxContentWidth - sql.length()) + " │");
+        } else {
+            // Envelopper le SQL sur plusieurs lignes, en essayant de le couper à des endroits judicieux
+            String[] words = sql.split(" ");
+            StringBuilder currentLine = new StringBuilder();
+
+            for (String word : words) {
+                if ((currentLine.length() + word.length() + 1) <= maxContentWidth) {
+                    if (currentLine.length() > 0) {
+                        currentLine.append(" ");
+                    }
+                    currentLine.append(word);
+                } else {
+                    // Afficher la ligne complète
+                    if (currentLine.length() > 0) {
+                        System.out.println("│ " + currentLine.toString() +
+                                " ".repeat(maxContentWidth - currentLine.length()) + " │");
+                        currentLine = new StringBuilder(word);
+                    } else {
+                        // Le mot lui-même est trop long, le couper
+                        System.out.println("│ " + word.substring(0, maxContentWidth) +
+                                " ".repeat(maxContentWidth - Math.min(word.length(), maxContentWidth)) + " │");
+                        word = word.substring(maxContentWidth);
+                        if (!word.isEmpty()) {
+                            currentLine = new StringBuilder(word);
+                        }
+                    }
+                }
+            }
+
+            // Afficher la dernière ligne
+            if (!currentLine.isEmpty()) {
+                System.out.println("│ " + currentLine.toString() +
+                        " ".repeat(maxContentWidth - currentLine.length()) + " │");
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 package be.bstorm.models;
 
-/**
+    /**
  * Record encapsulant les critères de recherche et pagination pour les livres.
  *
  * <p>Ce record immuable est utilisé par {@link be.bstorm.repositories.BookRepository#findAll(BookQuery)}
