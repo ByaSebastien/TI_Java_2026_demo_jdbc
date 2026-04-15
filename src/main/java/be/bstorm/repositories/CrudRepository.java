@@ -730,13 +730,13 @@ public abstract class CrudRepository<TEntity, TId> {
 
             for (String word : words) {
                 if ((currentLine.length() + word.length() + 1) <= maxContentWidth) {
-                    if (currentLine.length() > 0) {
+                    if (!currentLine.isEmpty()) {
                         currentLine.append(" ");
                     }
                     currentLine.append(word);
                 } else {
                     // Afficher la ligne complète
-                    if (currentLine.length() > 0) {
+                    if (!currentLine.isEmpty()) {
                         System.out.println("│ " + currentLine.toString() +
                                 " ".repeat(maxContentWidth - currentLine.length()) + " │");
                         currentLine = new StringBuilder(word);
