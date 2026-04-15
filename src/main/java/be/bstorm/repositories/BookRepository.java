@@ -3,32 +3,66 @@ package be.bstorm.repositories;
 import be.bstorm.entities.Author;
 import be.bstorm.entities.Book;
 import be.bstorm.models.BookQuery;
-import be.bstorm.utils.StatementSetter;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static be.bstorm.utils.ConnectionUtils.getConnection;
 
-public class BookRepository {
+/**
+ * Repository pour la gestion des livres ({@link Book}).
+ *
+ * <p>Hérite de {@link CrudRepository} et ajoute des méthodes de recherche personnalisées
+ * avec des critères de filtrage (ISBN, titre, auteur) et support de la pagination.
+ *
+ * <p><b>Méthodes supplémentaires :</b>
+ * <ul>
+ *   <li>{@link #findAll(BookQuery)} - recherche avec filtrage et pagination</li>
+ *   <li>{@link #findByIsbn(String)} - récupère un livre par ISBN avec ses données d'auteur</li>
+ *   <li>{@link #saveAll(List)} - insertion en lot de plusieurs livres</li>
+ * </ul>
+ *
+ * @see CrudRepository
+ * @see Book
+ * @see BookQuery
+ */
+public class BookRepository extends CrudRepository<Book, String> {
 
+    /**
+     * Recherche des livres selon des critères et un système de pagination.
+     *
+     * <p>Utilise {@link BookQuery} pour appliquer des filtres :
+     * <ul>
+     *   <li>ISBN (recherche partielle avec LIKE)</li>
+     *   <li>Titre (recherche partielle avec LIKE)</li>
+     *   <li>Auteur ID (correspondance exacte)</li>
+     * </ul>
+     *
+     * <p>La pagination est basée sur le numéro de page et la taille de page.
+     *
+     * @param query les critères de recherche et pagination
+     * @return liste des livres correspondant aux critères
+     * @throws RuntimeException en cas d'erreur SQL
+     */
     public List<Book> findAll(BookQuery query) {
-        try (Connection conn = getConnection()) {
-            String sql = buildFindAllQuery(query);
-            List<Object> params = buildFindAllParams(query);
+        String sql = buildFindAllQuery(query);
+        List<Object> params = buildFindAllParams(query);
 
-            PreparedStatement stmt = conn.prepareStatement(sql);
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
             setStatementParams(stmt, params);
 
             List<Book> books = new ArrayList<>();
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    books.add(buildEntity(rs));
+                    books.add(mapBook(rs));
                 }
             }
             return books;
@@ -37,49 +71,62 @@ public class BookRepository {
         }
     }
 
+    /**
+     * Récupère un livre par son ISBN avec les informations complètes de son auteur.
+     *
+     * <p>Effectue une jointure LEFT JOIN avec la table author pour récupérer
+     * les données d'auteur (nom, prénom, date de naissance) et les attacher
+     * au livre via la propriété de navigation {@link Book#author}.
+     *
+     * <p><b>Note :</b> Les propriétés de navigation (annotations {@link NavigationProperty})
+     * ne sont pas automatiquement remplies par le repository générique. Cette méthode
+     * le fait manuellement via un JOIN SQL personnalisé.
+     *
+     * @param isbn l'ISBN à rechercher (clé primaire)
+     * @return {@code Optional} contenant le livre avec ses données d'auteur, ou vide si non trouvé
+     * @throws RuntimeException en cas d'erreur SQL
+     */
     public Optional<Book> findByIsbn(String isbn) {
-        try (Connection conn = getConnection()) {
-            String query = """
-                    SELECT b.isbn, b.title, b.description, b.author_id,
-                           a.id, a.firstName, a.lastName, a.birthDate
-                    FROM Book b
-                    LEFT JOIN Author a ON b.author_id = a.id
-                    WHERE b.isbn = ?
-                    """;
+        String query = """
+                SELECT b.isbn, b.title, b.description, b.author_id,
+                       a.id AS author_id_join, a.firstname AS author_firstname, a.lastname AS author_lastname, a.birthdate AS author_birthdate
+                FROM book b
+                LEFT JOIN author a ON b.author_id = a.id
+                WHERE b.isbn = ?
+                """;
 
-            PreparedStatement stmt = conn.prepareStatement(query);
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+
             stmt.setString(1, isbn);
-
             try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next() ? Optional.of(buildEntityWithAuthor(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(mapBookWithAuthor(rs)) : Optional.empty();
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to find book by ISBN: " + isbn, e);
         }
     }
 
-    public void save(Book book) {
-        executeUpdate(
-            "INSERT INTO Book (isbn, title, description, author_id) VALUES (?, ?, ?, ?)",
-            stmt -> {
-                stmt.setString(1, book.getIsbn());
-                stmt.setString(2, book.getTitle());
-                stmt.setString(3, book.getDescription());
-                stmt.setInt(4, book.getAuthorId());
-            },
-            "Failed to save book"
-        );
-    }
-
+    /**
+     * Insère plusieurs livres en une seule opération par batch.
+     *
+     * <p>Utilise {@code addBatch()} pour regrouper les INSERTs et {@code executeBatch()}
+     * pour les exécuter en lot, ce qui est plus performant qu'appeler {@code save()}
+     * individuellement.
+     *
+     * @param books la liste des livres à insérer
+     * @throws RuntimeException en cas d'erreur SQL
+     */
     public void saveAll(List<Book> books) {
         if (books == null || books.isEmpty()) {
             return;
         }
 
-        String query = "INSERT INTO Book (isbn, title, description, author_id) VALUES (?, ?, ?, ?)";
+        String query = "INSERT INTO book (isbn, title, description, author_id) VALUES (?, ?, ?, ?)";
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(query)) {
+
             for (Book book : books) {
                 stmt.setString(1, book.getIsbn());
                 stmt.setString(2, book.getTitle());
@@ -94,67 +141,62 @@ public class BookRepository {
         }
     }
 
-
-
-    public void update(String isbn, Book book) {
-        executeUpdate(
-            "UPDATE Book SET title = ?, description = ?, author_id = ? WHERE isbn = ?",
-            stmt -> {
-                stmt.setString(1, book.getTitle());
-                stmt.setString(2, book.getDescription());
-                stmt.setInt(3, book.getAuthorId());
-                stmt.setString(4, isbn);
-            },
-            "Failed to update book"
-        );
-    }
-
-    public void delete(String isbn) {
-        executeUpdate(
-            "DELETE FROM Book WHERE isbn = ?",
-            stmt -> stmt.setString(1, isbn),
-            "Failed to delete book"
-        );
-    }
-
-    private Book buildEntity(ResultSet rs) throws SQLException {
+    /**
+     * Convertit une ligne de ResultSet en entité {@link Book} minimale.
+     *
+     * <p>Utilise le pattern builder de Lombok pour créer une instance de Book.
+     *
+     * @param rs le ResultSet positionné sur la ligne
+     * @return une nouvelle instance de Book
+     * @throws SQLException en cas d'erreur de lecture
+     */
+    private Book mapBook(ResultSet rs) throws SQLException {
         return Book.builder()
                 .isbn(rs.getString("isbn"))
                 .title(rs.getString("title"))
                 .description(rs.getString("description"))
-                .authorId(rs.getInt("author_id"))
+                .authorId((Integer) rs.getObject("author_id"))
                 .build();
     }
 
-    private Book buildEntityWithAuthor(ResultSet rs) throws SQLException {
+    /**
+     * Convertit une ligne de ResultSet en entité {@link Book} enrichie avec ses données d'auteur.
+     *
+     * <p>Appelle d'abord {@link #mapBook(ResultSet)} pour créer le Book,
+     * puis hydrate manuellement la propriété de navigation {@code author}
+     * si une correspondance d'auteur existe.
+     *
+     * @param rs le ResultSet positionné sur la ligne (contenant les colonnes auteur)
+     * @return une nouvelle instance de Book avec l'auteur complet
+     * @throws SQLException en cas d'erreur de lecture
+     */
+    private Book mapBookWithAuthor(ResultSet rs) throws SQLException {
+        Book book = mapBook(rs);
+
+        Integer authorId = (Integer) rs.getObject("author_id_join");
+        if (authorId == null) {
+            return book;
+        }
+
         Author author = Author.builder()
-                .id(rs.getInt("id"))
-                .firstName(rs.getString("firstName"))
-                .lastName(rs.getString("lastName"))
-                .birthDate(rs.getDate("birthDate").toLocalDate())
+                .id(authorId)
+                .firstName(rs.getString("author_firstname"))
+                .lastName(rs.getString("author_lastname"))
+                .birthDate(rs.getObject("author_birthdate", LocalDate.class))
                 .build();
 
-        Book book = buildEntity(rs);
         book.setAuthor(author);
         return book;
     }
 
-    private void executeUpdate(String query, StatementSetter setter, String errorMessage) {
-        try (Connection conn = getConnection()) {
-            PreparedStatement stmt = conn.prepareStatement(query);
-            setter.setParams(stmt);
-
-            int rows = stmt.executeUpdate();
-            if (rows == 0) {
-                throw new RuntimeException(errorMessage);
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException(errorMessage, e);
-        }
-    }
-
+    /**
+     * Construit dynamiquement la clause WHERE d'une requête SELECT basée sur les critères.
+     *
+     * @param query les critères de recherche
+     * @return la requête SQL complète
+     */
     private String buildFindAllQuery(BookQuery query) {
-        StringBuilder sql = new StringBuilder("SELECT * FROM Book WHERE 1 = 1");
+        StringBuilder sql = new StringBuilder("SELECT isbn, title, description, author_id FROM book WHERE 1 = 1");
 
         if (query.isbn() != null && !query.isbn().isBlank()) {
             sql.append(" AND isbn LIKE ?");
@@ -170,6 +212,12 @@ public class BookRepository {
         return sql.toString();
     }
 
+    /**
+     * Construit la liste des paramètres SQL correspondant aux critères de recherche.
+     *
+     * @param query les critères de recherche
+     * @return liste des valeurs à binder aux paramètres (?)
+     */
     private List<Object> buildFindAllParams(BookQuery query) {
         List<Object> params = new ArrayList<>();
 
@@ -188,6 +236,13 @@ public class BookRepository {
         return params;
     }
 
+    /**
+     * Lie (bind) les paramètres à un PreparedStatement de manière séquentielle.
+     *
+     * @param stmt le PreparedStatement à remplir
+     * @param params la liste des valeurs à binder
+     * @throws SQLException en cas d'erreur
+     */
     private void setStatementParams(PreparedStatement stmt, List<Object> params) throws SQLException {
         for (int i = 0; i < params.size(); i++) {
             stmt.setObject(i + 1, params.get(i));

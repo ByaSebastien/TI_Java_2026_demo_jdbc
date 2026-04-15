@@ -1,39 +1,196 @@
+# ====================================
+# Maven & Build
+# ====================================
 target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+.flattened-pom.xml
+*.odx.xml
+*.neu
+build/
+dist/
+
+# EXCEPTIONS: Gardez certains fichiers Maven
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+
+# ====================================
+# Fichiers générés par compilateur
+# ====================================
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
 .kotlin
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-*.iws
+# ====================================
+# IDE - IntelliJ IDEA (JetBrains)
+# ====================================
+.idea/
+!.idea/runConfigurations/
+!.idea/codeStyles/
+!.idea/inspectionProfiles/
 *.iml
 *.ipr
+*.iws
+*.jks
+*.keystore
+.idea_modules/
+.veto
+out/
 
-### Eclipse ###
-.apt_generated
+# ====================================
+# IDE - Eclipse
+# ====================================
 .classpath
-.factorypath
 .project
-.settings
+.settings/
+.apt_generated
+.factorypath
 .springBeans
 .sts4-cache
+bin/
+.c9/
 
-### NetBeans ###
+# ====================================
+# IDE - NetBeans
+# ====================================
 /nbproject/private/
 /nbbuild/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
+# ====================================
+# IDE - VS Code
+# ====================================
 .vscode/
+*.code-workspace
+.java-version
 
-### Mac OS ###
+# ====================================
+# OS - Windows
+# ====================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ====================================
+# OS - macOS
+# ====================================
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+.TemporaryItems
+
+# ====================================
+# OS - Linux
+# ====================================
+.directory
+*.swp
+*~
+.nfs*
+
+# ====================================
+# Logs & Fichiers Temporaires
+# ====================================
+logs/
+*.log
+*.log.*
+nohup.out
+*.tmp
+*.temp
+*.bak
+*.backup
+.swpfiles/
+
+# ====================================
+# Base de Données
+# ====================================
+*.db
+*.sqlite
+*.sqlite3
+*.h2.db
+*.dbf
+data/
+
+# ====================================
+# Configuration Sensible (NE PAS COMMITTER)
+# ====================================
+.env
+.env.local
+.env.*.local
+application-local.properties
+config/local/
+secrets.properties
+private/
+credentials.json
+*.pem
+*.key
+
+# ====================================
+# Dépendances Maven locales
+# ====================================
+.m2/
+repository/
+lib/
+
+# ====================================
+# Tests & Couverture de Code
+# ====================================
+target/surefire-reports/
+target/failsafe-reports/
+jacoco.exec
+coverage.xml
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ====================================
+# Runtime & Processus
+# ====================================
+*.pid
+*.exe
+*.o
+*.so
+*.dll
+.gradle/
+.gradle
+*.gradle
+
+# ====================================
+# Divers
+# ====================================
+.jdtscope
+MANIFEST.MF
+org.eclipse.wst.jsdt.ui.superType.container
+org.eclipse.wst.jsdt.ui.superType.name
+.tern-port
+.sublime-workspace
+.sublime-project
+.nbattrs
+
+# ====================================
+# Fichiers d'éditeur
+# ====================================
+*~
+*.swp
+*.swo
+*#
+.#*
+!.gitkeep
