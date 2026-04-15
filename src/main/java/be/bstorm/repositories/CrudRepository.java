@@ -473,9 +473,6 @@ public abstract class CrudRepository<TEntity, TId> {
      * @return la requête INSERT paramétrée
      */
     private String buildInsertSql() {
-        if (insertFields.isEmpty()) {
-            return "INSERT INTO " + tableName + " DEFAULT VALUES";
-        }
 
         String columns = insertFields.stream()
                 .map(this::resolveColumnName)
