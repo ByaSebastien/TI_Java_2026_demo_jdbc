@@ -13,14 +13,14 @@ import java.util.Optional;
 /**
  * Classe principale pour tester les fonctionnalités du repository générique.
  *
- * <p>Ce programme démontre tous les opérations CRUD et recherches disponibles
+ * <p>Ce programme démontre toutes les opérations CRUD et recherches disponibles
  * via le {@link be.bstorm.repositories.CrudRepository} générique.
  *
  * @see be.bstorm.repositories.AuthorRepository
  * @see be.bstorm.repositories.BookRepository
  */
 public class Main {
-    static void main(String[] args) {
+    static void main() {
         System.out.println("╔════════════════════════════════════════════════════════════╗");
         System.out.println("║   🚀 DÉMONSTRATION DU CRUD REPOSITORY GÉNÉRIQUE            ║");
         System.out.println("╚════════════════════════════════════════════════════════════╝");
@@ -50,6 +50,7 @@ public class Main {
         // 1.3 - Compter les auteurs (COUNT)
         System.out.println("\n📌 [1.3] Compter le nombre total d'auteurs");
         int authorCount = authorRepo.count();
+        System.out.println("✅ Nombre total d'auteurs : " + authorCount);
 
         // 1.4 - Rechercher un auteur par ID (SELECT BY ID)
         System.out.println("\n📌 [1.4] Rechercher un auteur par ID : " + authorId);
@@ -67,7 +68,8 @@ public class Main {
         // 1.6 - Mettre à jour un auteur (UPDATE)
         System.out.println("\n📌 [1.6] Mettre à jour l'auteur ID " + authorId);
         Author updatedAuthor = new Author(null, "Stephen", "King Jr.", LocalDate.of(1947, 9, 21));
-        authorRepo.update(authorId, updatedAuthor);
+        updatedAuthor = authorRepo.update(authorId, updatedAuthor);
+        System.out.println("✅ Auteur mis à jour : " + updatedAuthor);
 
         // 1.7 - Récupérer l'auteur mis à jour
         System.out.println("\n📌 [1.7] Récupérer l'auteur mis à jour");
@@ -101,6 +103,7 @@ public class Main {
         // 2.3 - Compter les livres (COUNT)
         System.out.println("\n📌 [2.3] Compter le nombre total de livres");
         int bookCount = bookRepo.count();
+        System.out.println("✅ Nombre total de livres : " + bookCount);
 
         // 2.4 - Rechercher un livre par ISBN (SELECT BY ID)
         System.out.println("\n📌 [2.4] Rechercher un livre par ISBN : " + savedBook.getIsbn());

@@ -25,7 +25,7 @@ import static be.bstorm.utils.ConnectionUtils.getConnection;
  *
  * <p>Cette classe abstraite génère automatiquement les requêtes SQL à partir des annotations
  * {@link Table}, {@link Column}, {@link Id} présentes sur l'entité. Les sous-classes
- * concrètes (ex: {@code AuthorRepository}, {@code BookRepository}) n'ont besoin que de
+ * concrètes (ex : {@code AuthorRepository}, {@code BookRepository}) n'ont besoin que de
  * déclarer leur type générique.
  *
  * <p><b>Fonctionnement :</b>
@@ -50,8 +50,8 @@ import static be.bstorm.utils.ConnectionUtils.getConnection;
  * }
  * </pre>
  *
- * @param <TEntity> le type de l'entité gérée (ex: {@code Author})
- * @param <TId>     le type de la clé primaire (ex: {@code Integer})
+ * @param <TEntity> le type de l'entité gérée (ex : {@code Author})
+ * @param <TId>     le type de la clé primaire (ex : {@code Integer})
  * @see Table
  * @see Column
  * @see Id
@@ -75,9 +75,9 @@ public abstract class CrudRepository<TEntity, TId> {
      *
      * <p>La résolution du type {@code TEntity} se fait via la réflexion générique
      * ({@link ParameterizedType}). La classe doit être instanciée via une sous-classe
-     * concrète qui déclare les paramètres de type (ex: {@code AuthorRepository extends CrudRepository<Author, Integer>}).
+     * concrète qui déclare les paramètres de type (ex : {@code AuthorRepository extends CrudRepository<Author, Integer>}).
      *
-     * <p>Tous les métadonnées sont calculées une seule fois à la construction et cachées.
+     * <p>Toutes les métadonnées sont calculées une seule fois à la construction et cachées.
      *
      * @throws IllegalArgumentException si l'entité n'a pas d'annotation {@code @Table}
      * @throws IllegalArgumentException si l'entité n'a pas d'annotation {@code @Column}
@@ -135,7 +135,7 @@ public abstract class CrudRepository<TEntity, TId> {
      */
     public Optional<TEntity> findById(TId id) {
         String sql = "SELECT " + selectColumns + " FROM " + tableName + " WHERE " + idColumn + " = ?";
-        logQuery("FINDBYID", sql, List.of(id));
+        logQuery("FIND BY ID", sql, List.of(id));
 
         try (Connection conn = getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -144,10 +144,10 @@ public abstract class CrudRepository<TEntity, TId> {
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     TEntity entity = buildEntity(rs);
-                    logResult("FINDBYID", "Entity found");
+                    logResult("FIND BY ID", "Entity found");
                     return Optional.of(entity);
                 }
-                logResult("FINDBYID", "No entity found");
+                logResult("FIND BY ID", "No entity found");
                 return Optional.empty();
             }
         } catch (SQLException e) {
@@ -215,7 +215,7 @@ public abstract class CrudRepository<TEntity, TId> {
      * @param id     la clé primaire identifiant la ligne à modifier
      * @param entity l'entité contenant les nouvelles valeurs
      * @return l'entité avec sa clé primaire mis à jour
-     * @throws RuntimeException si aucune ligne n'a été modifiée (id inexistant)
+     * @throws RuntimeException si aucune ligne n'a été modifiée (id inexistant).
      */
     public TEntity update(TId id, TEntity entity) {
         String sql = buildUpdateSql();
@@ -252,7 +252,7 @@ public abstract class CrudRepository<TEntity, TId> {
      *
      * @param id la clé primaire de la ligne à supprimer
      * @return l'entité qui a été supprimée
-     * @throws RuntimeException si aucune ligne n'a été supprimée (id inexistant)
+     * @throws RuntimeException si aucune ligne n'a été supprimée (id inexistant).
      */
     public TEntity deleteById(TId id) {
         TEntity existing = findById(id)
@@ -594,7 +594,7 @@ public abstract class CrudRepository<TEntity, TId> {
      * Affiche une requête SQL avec ses paramètres de manière formatée.
      * Adapte dynamiquement la largeur du cadre et enveloppe le SQL sur plusieurs lignes.
      *
-     * @param operation le type d'opération (FINDALL, FINDBYID, SAVE, UPDATE, DELETE, etc.)
+     * @param operation le type d'opération (FINDALL, FIND BY ID, SAVE, UPDATE, DELETE, etc.)
      * @param sql       la requête SQL
      * @param params    les paramètres liés
      */
@@ -602,7 +602,7 @@ public abstract class CrudRepository<TEntity, TId> {
         System.out.println();
 
         // Calculer la largeur nécessaire
-        int width = calculateWidth(sql, operation, params);
+        int width = 60;
 
         // Afficher le cadre supérieur
         printTopBorder(width);
@@ -638,15 +638,6 @@ public abstract class CrudRepository<TEntity, TId> {
         int width = 60; // Largeur fixe pour rester cohérent
         printLine(width, "✅ Résultat (" + operation + ") : " + result);
         printBottomBorder(width);
-    }
-
-    /**
-     * Calcule la largeur nécessaire pour afficher le contenu.
-     * Largeur fixe à 60 caractères pour garder un format compact.
-     * Le SQL s'enveloppera sur plusieurs lignes si nécessaire.
-     */
-    private int calculateWidth(String sql, String operation, List<Object> params) {
-        return 60; // Largeur fixe pour garder un format compact
     }
 
     /**
@@ -737,7 +728,7 @@ public abstract class CrudRepository<TEntity, TId> {
                 } else {
                     // Afficher la ligne complète
                     if (!currentLine.isEmpty()) {
-                        System.out.println("│ " + currentLine.toString() +
+                        System.out.println("│ " + currentLine +
                                 " ".repeat(maxContentWidth - currentLine.length()) + " │");
                         currentLine = new StringBuilder(word);
                     } else {
@@ -754,7 +745,7 @@ public abstract class CrudRepository<TEntity, TId> {
 
             // Afficher la dernière ligne
             if (!currentLine.isEmpty()) {
-                System.out.println("│ " + currentLine.toString() +
+                System.out.println("│ " + currentLine +
                         " ".repeat(maxContentWidth - currentLine.length()) + " │");
             }
         }
